@@ -508,6 +508,55 @@ class JumpProposal(object):
         name_string = '_'.join(name_list)
         draw.__name__ = 'draw_from_{}_prior'.format(name_string)
         return draw
+    
+    
+    def draw_from_many_par_prior(self, par_names, string_name):
+        # Preparing and comparing par_names with PTA parameters
+        par_names = np.atleast_1d(par_names)
+        par_list = []
+        name_list = []
+        for par_name in par_names:
+            pn_list = [n for n in self.plist if par_name in n]
+            if pn_list:
+                par_list.append(pn_list)
+                name_list.append(par_name)
+        if not par_list:
+            raise UserWarning("No parameter prior match found between {} and PTA.object."
+                              .format(par_names))
+        par_list = np.concatenate(par_list,axis=None)
+
+        def draw(x, iter, beta):
+            """Prior draw function generator for custom par_names.
+            par_names: list of strings
+            The function signature is specific to PTMCMCSampler.
+            """
+
+            q = x.copy()
+            lqxy = 0
+
+            # randomly choose parameter
+            idx_name = np.random.choice(par_list)
+            idx = self.plist.index(idx_name)
+
+            # if vector parameter jump in random component
+            param = self.params[idx]
+            if param.size:
+                idx2 = np.random.randint(0, param.size)
+                q[self.pmap[str(param)]][idx2] = param.sample()[idx2]
+
+            # scalar parameter
+            else:
+                q[self.pmap[str(param)]] = param.sample()
+
+            # forward-backward jump probability
+            lqxy = (param.get_logpdf(x[self.pmap[str(param)]]) -
+                    param.get_logpdf(q[self.pmap[str(param)]]))
+
+            return q, float(lqxy)
+
+        name_string = string_name
+        draw.__name__ = 'draw_from_{}_prior'.format(name_string)
+        return draw
 
     def draw_from_par_log_uniform(self, par_dict):
         # Preparing and comparing par_dict.keys() with PTA parameters
