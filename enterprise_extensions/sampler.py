@@ -655,6 +655,330 @@ class JumpProposal(object):
         lqxy = np.log(fe_old_point/fe_new_point * hastings_extra_factor)
 
         return q, float(lqxy)
+    
+    def phase_psi_reverse_jump(self, x, iter, beta):
+        ##written by SJV for 11yr CW
+        q = x.copy()
+        lqxy = 0
+
+        param = np.random.choice([str(p) for p in self.pnames if 'phase' in p])
+        
+        if param == 'phase0':
+            q[self.pnames.index('phase0')] = np.mod(x[self.pnames.index('phase0')] + np.pi, 2*np.pi)
+            q[self.pnames.index('psi')] = np.mod(x[self.pnames.index('psi')] + np.pi/2, np.pi)
+        else:
+            q[self.pnames.index(param)] = np.mod(x[self.pnames.index(param)] + np.pi, 2*np.pi)
+                
+        return q, float(lqxy)
+    
+    def fix_cyclic_pars(self, prepar, postpar, iter, beta):
+        ##written by SJV for 11yr CW
+        q = postpar.copy()
+        
+        for param in self.params:
+            if 'phase' in param.name:
+                q[self.pmap[str(param)]] = np.mod(postpar[self.pmap[str(param)]], 2*np.pi)
+            elif param.name == 'psi':
+                q[self.pmap[str(param)]] = np.mod(postpar[self.pmap[str(param)]], np.pi)
+            elif param.name == 'gwphi':
+                #if param._pmin == 0 and param._pmax == 2*np.pi:
+                if str(param).split('=')[1].split(',')[0] == 0 and str(param).split('=')[-1].split(')')[0] == str(2*np.pi):
+                    q[self.pmap[str(param)]] = np.mod(postpar[self.pmap[str(param)]], 2*np.pi)
+                
+        return q, 0
+
+    def fix_psr_dist(self, prepar, postpar, iter, beta):
+        ##written by SJV for 11yr CW
+        q = postpar.copy()
+        
+        for param in self.params:
+            if 'p_dist' in param.name:
+                
+                psr_name = param.name.split('_')[0]
+                
+                while self.psr_dist[psr_name][0] + self.psr_dist[psr_name][1]*q[self.pmap[str(param)]] < 0:
+                    q[self.pmap[str(param)]] = param.sample()
+                
+        return q, 0
+    
+    def draw_strain_psi(self, x, iter, beta):
+        #written by SJV for 11yr CW, adapted for targeted search by CAW
+        
+        q = x.copy()
+        lqxy = 0
+        
+        # draw a new value of psi, then jump in log10_h so that either h*cos(2*psi) or h*sin(2*psi) are conserved
+        which_jump = np.random.random()
+        
+        if 'log10_h' in self.pnames:
+            if which_jump > 0.5:
+                # jump so that h*cos(2*psi) is conserved            
+                # make sure that the sign of cos(2*psi) does not change
+                if x[self.pnames.index('psi')] > 0.25*np.pi and x[self.pnames.index('psi')] < 0.75*np.pi:
+                    q[self.pnames.index('psi')] = np.random.uniform(0.25*np.pi,0.75*np.pi)
+                else:
+                    newval = np.random.uniform(-0.25*np.pi,0.25*np.pi)
+                    if newval < 0:
+                        newval += np.pi
+                    q[self.pnames.index('psi')] = newval
+                    
+                ratio = np.cos(2*x[self.pnames.index('psi')])/np.cos(2*q[self.pnames.index('psi')])
+                q[self.pnames.index('log10_h')] = x[self.pnames.index('log10_h')] + np.log10(ratio)       
+                
+            else:
+                # jump so that h*sin(2*psi) is conserved            
+                # make sure that the sign of sin(2*psi) does not change
+                if x[self.pnames.index('psi')] < np.pi/2:
+                    q[self.pnames.index('psi')] = np.random.uniform(0,np.pi/2)
+                else:
+                    q[self.pnames.index('psi')] = np.random.uniform(np.pi/2,np.pi)
+                    
+                ratio = np.sin(2*x[self.pnames.index('psi')])/np.sin(2*q[self.pnames.index('psi')])
+                q[self.pnames.index('log10_h')] = x[self.pnames.index('log10_h')] + np.log10(ratio)
+        elif 'log10_fgw' in self.pnames:
+            if which_jump > 0.5:
+                # jump so that h*cos(2*psi) is conserved            
+                # make sure that the sign of cos(2*psi) does not change
+                if x[self.pnames.index('psi')] > 0.25*np.pi and x[self.pnames.index('psi')] < 0.75*np.pi:
+                    q[self.pnames.index('psi')] = np.random.uniform(0.25*np.pi,0.75*np.pi)
+                else:
+                    newval = np.random.uniform(-0.25*np.pi,0.25*np.pi)
+                    if newval < 0:
+                        newval += np.pi
+                    q[self.pnames.index('psi')] = newval
+                    
+                ratio = np.cos(2*x[self.pnames.index('psi')])/np.cos(2*q[self.pnames.index('psi')])
+
+                
+            else:
+                # jump so that h*sin(2*psi) is conserved            
+                # make sure that the sign of sin(2*psi) does not change
+                if x[self.pnames.index('psi')] < np.pi/2:
+                    q[self.pnames.index('psi')] = np.random.uniform(0,np.pi/2)
+                else:
+                    q[self.pnames.index('psi')] = np.random.uniform(np.pi/2,np.pi)
+                    
+                ratio = np.sin(2*x[self.pnames.index('psi')])/np.sin(2*q[self.pnames.index('psi')])
+                
+            # draw one and calculate the other!!!
+            cw_params = [ p for p in self.pnames if p in ['log10_mc', 'log10_fgw']]
+            myparam = np.random.choice(cw_params)
+            
+            idx = 0
+            for i,p in enumerate(self.params):
+                 if p.name == myparam:
+                    idx = i
+            param = self.params[idx]
+            
+            if myparam == 'log10_mc':
+                q[self.pnames.index('log10_mc')] = q[self.pmap[str(param)]] = param.sample()
+                q[self.pnames.index('log10_fgw')] = 3/2*(-5/3*q[self.pnames.index('log10_mc')] \
+                                                        +2/3*x[self.pnames.index('log10_fgw')] \
+                                                        +5/3*x[self.pnames.index('log10_mc')] \
+                                                        + np.log10(ratio))
+
+            else:
+                q[self.pnames.index('log10_fgw')] = q[self.pmap[str(param)]] = param.sample()
+                q[self.pnames.index('log10_mc')] = 3/5*(-2/3*q[self.pnames.index('log10_fgw')] \
+                                                        +2/3*x[self.pnames.index('log10_fgw')] \
+                                                        +5/3*x[self.pnames.index('log10_mc')] \
+                                                        + np.log10(ratio))
+        else:
+            if which_jump > 0.5:
+                # jump so that h*cos(2*psi) is conserved            
+                # make sure that the sign of cos(2*psi) does not change
+                if x[self.pnames.index('psi')] > 0.25*np.pi and x[self.pnames.index('psi')] < 0.75*np.pi:
+                    q[self.pnames.index('psi')] = np.random.uniform(0.25*np.pi,0.75*np.pi)
+                else:
+                    newval = np.random.uniform(-0.25*np.pi,0.25*np.pi)
+                    if newval < 0:
+                        newval += np.pi
+                    q[self.pnames.index('psi')] = newval
+                    
+                ratio = np.cos(2*x[self.pnames.index('psi')])/np.cos(2*q[self.pnames.index('psi')])
+                q[self.pnames.index('log10_mc')] = x[self.pnames.index('log10_mc')] + 3/5*np.log10(ratio)       
+                
+            else:
+                # jump so that h*sin(2*psi) is conserved            
+                # make sure that the sign of sin(2*psi) does not change
+                if x[self.pnames.index('psi')] < np.pi/2:
+                    q[self.pnames.index('psi')] = np.random.uniform(0,np.pi/2)
+                else:
+                    q[self.pnames.index('psi')] = np.random.uniform(np.pi/2,np.pi)
+                    
+                ratio = np.sin(2*x[self.pnames.index('psi')])/np.sin(2*q[self.pnames.index('psi')])
+                q[self.pnames.index('log10_mc')] = x[self.pnames.index('log10_mc')] + 3/5*np.log10(ratio)
+                
+        return q, float(lqxy)
+    
+    def draw_strain_inc(self, x, iter, beta):
+        
+        q = x.copy()
+        lqxy = 0
+        
+        # half of the time, jump so that you conserve h*(1 + cos_inc^2)
+        # the rest of the time, jump so that you conserve h*cos_inc
+        
+        which_jump = np.random.random()
+        
+
+        
+
+        if 'log10_h' in self.pnames:
+            #written by SJV for 11yr CW, adapted for targeted search (strain not sampled) by CAW
+
+            
+            if which_jump > 0.5:
+            
+                q[self.pnames.index('cos_inc')] = np.random.uniform(-1,1)
+                q[self.pnames.index('log10_h')] = x[self.pnames.index('log10_h')] \
+                                                    + np.log10(1+x[self.pnames.index('cos_inc')]**2) \
+                                                    - np.log10(1+q[self.pnames.index('cos_inc')]**2)
+                        
+            else:
+                
+                # if jumping to conserve h*cos_inc, make sure the sign of cos_inc does not change
+                if x[self.pnames.index('cos_inc')] > 0:
+                    q[self.pnames.index('cos_inc')] = np.random.uniform(0,1)
+                else:
+                    q[self.pnames.index('cos_inc')] = np.random.uniform(-1,0)
+        
+                q[self.pnames.index('log10_h')] = x[self.pnames.index('log10_h')] \
+                                                    + np.log10(x[self.pnames.index('cos_inc')]/q[self.pnames.index('cos_inc')])
+        elif 'log10_fgw' in self.pnames:
+            
+            if which_jump > 0.5:
+            
+                q[self.pnames.index('cos_inc')] = np.random.uniform(-1,1)
+                ratio =  np.log10(1+x[self.pnames.index('cos_inc')]**2) - np.log10(1+q[self.pnames.index('cos_inc')]**2)
+
+                                               
+            else:
+                
+                # if jumping to conserve h*cos_inc, make sure the sign of cos_inc does not change
+                if x[self.pnames.index('cos_inc')] > 0:
+                    q[self.pnames.index('cos_inc')] = np.random.uniform(0,1)
+                else:
+                    q[self.pnames.index('cos_inc')] = np.random.uniform(-1,0)
+        
+                ratio = np.log10(x[self.pnames.index('cos_inc')]/q[self.pnames.index('cos_inc')])
+
+            cw_params = [ p for p in self.pnames if p in ['log10_mc', 'log10_fgw']]
+            myparam = np.random.choice(cw_params)
+            
+            idx = 0
+            for i,p in enumerate(self.params):
+                 if p.name == myparam:
+                    idx = i
+            param = self.params[idx]
+            
+            if myparam == 'log10_mc':
+                q[self.pnames.index('log10_mc')] = q[self.pmap[str(param)]] = param.sample()
+                q[self.pnames.index('log10_fgw')] = 3/2*(-5/3*q[self.pnames.index('log10_mc')] \
+                                                        +2/3*x[self.pnames.index('log10_fgw')] \
+                                                        +5/3*x[self.pnames.index('log10_mc')] \
+                                                        + ratio)
+
+            else:
+                q[self.pnames.index('log10_fgw')] = q[self.pmap[str(param)]] = param.sample()
+                q[self.pnames.index('log10_mc')] = 3/5*(-2/3*q[self.pnames.index('log10_fgw')] \
+                                                        +2/3*x[self.pnames.index('log10_fgw')] \
+                                                        +5/3*x[self.pnames.index('log10_mc')] \
+                                                        + ratio)
+                    
+            
+        else:
+        
+            if which_jump > 0.5:
+            
+                q[self.pnames.index('cos_inc')] = np.random.uniform(-1,1)
+                q[self.pnames.index('log10_mc')] = x[self.pnames.index('log10_mc')] \
+                                                    + 3/5*np.log10(1+x[self.pnames.index('cos_inc')]**2) \
+                                                    - 3/5*np.log10(1+q[self.pnames.index('cos_inc')]**2)
+                        
+            else:
+                
+                # if jumping to conserve h*cos_inc, make sure the sign of cos_inc does not change
+                if x[self.pnames.index('cos_inc')] > 0:
+                    q[self.pnames.index('cos_inc')] = np.random.uniform(0,1)
+                else:
+                    q[self.pnames.index('cos_inc')] = np.random.uniform(-1,0)
+        
+                q[self.pnames.index('log10_mc')] = x[self.pnames.index('log10_mc')] \
+                                                    + 3/5*np.log10(x[self.pnames.index('cos_inc')]/q[self.pnames.index('cos_inc')])
+                    
+        return q, float(lqxy)
+    
+    def draw_strain_skewstep(self, x, iter, beta):
+        ##written by SJV for 11yrCW
+        
+        q = x.copy()
+        lqxy = 0
+        
+        a = 2
+        s = 1
+        
+        diff = skewnorm.rvs(a, scale=s)
+        q[self.pnames.index('log10_h')] = x[self.pnames.index('log10_h')] - diff
+        lqxy = skewnorm.logpdf(-diff, a, scale=s) - skewnorm.logpdf(diff, a, scale=s)
+        
+        return q, float(lqxy)
+    
+    def draw_gwtheta_comb(self, x, iter, beta):
+        ##written by SJV for 11yrCW
+
+        q = x.copy()
+        lqxy = 0
+        
+        # the variance of the Gaussian we are drawing from is very small
+        # to account for the comb-like structure of the posterior
+        sigma = const.c/self.fgw/const.kpc
+        
+        # now draw an integer to go to a nearby spike
+        N = int(0.1/sigma)
+        n = np.random.randint(-N,N)
+        newval = np.arccos(x[self.pnames.index('cos_gwtheta')]) \
+                    + (sigma/2)*np.random.randn() + n*sigma
+        
+        q[self.pnames.index('cos_gwtheta')] = np.cos(newval)
+                
+        return q, float(lqxy)
+
+    def draw_gwphi_comb(self, x, iter, beta):
+        ##written by SJV for 11yrCW
+
+        # this jump takes into account the comb-like structure of the likelihood 
+        # as a function of gwphi, with sharp spikes superimposed on a smoothly-varying function
+        # the width of these spikes is related to the GW wavelength
+        # this jump does two things:
+        #  1. jumps an integer number of GW wavelengths away from the current point
+        #  2. draws a step size from a Gaussian with variance equal to half the GW wavelength, 
+        #     and takes a small step from its position in a new spike
+        
+        q = x.copy()
+        lqxy = 0
+        
+        # compute the GW wavelength
+        sigma = const.c/self.fgw/const.kpc
+        
+        # now draw an integer to go to a nearby spike
+        # we need to move over a very large number of spikes to move appreciably in gwphi
+        # the maximum number of spikes away you can jump 
+        # corresponds to moving 0.1 times the prior range
+        idx = 0
+        for i,p in enumerate(self.params):
+            if p.name == 'gwphi':
+                idx = i
+        pmax = float(str(self.params[idx]).split('=')[-1].split(')')[0])
+        pmin = float(str(self.params[idx]).split('=')[1].split(',')[0])
+        N = int(0.1*(pmax - pmin)/sigma)
+
+        #N = int(0.1*(self.params[idx]._pmax - self.params[idx]._pmin)/sigma)
+        n = np.random.randint(-N,N)
+        
+        q[self.pnames.index('gwphi')] = x[self.pnames.index('gwphi')] + (sigma/2)*np.random.randn() + n*sigma
+
+        return q, float(lqxy)
 
 
 def get_global_parameters(pta):
@@ -707,6 +1031,209 @@ def get_cw_groups(pta):
     for pars in [ang_pars, mfdh_pars, freq_pars]:
         groups.append(group_from_params(pta, pars))
 
+    return groups
+
+def get_parameter_groups_CAW(pta):
+    
+    """Utility function to get parameter groups for CW sampling.
+    These groups should be used instead of the usual get_parameter_groups output.
+    Will also include groupings for other signal types for combination with CW signals, if included"""
+    
+    ndim = len(pta.param_names)
+    groups  = [range(0, ndim)]
+    params = pta.param_names
+
+    snames = np.unique([[qq.signal_name for qq in pp._signals] 
+                        for pp in pta._signalcollections])
+    
+    # sort parameters by signal collections
+    ephempars = []
+    rnpars = []
+    cwpars = []
+    wnpars = []
+
+    for sc in pta._signalcollections:
+        for signal in sc._signals:
+            if signal.signal_name == 'red noise':
+                rnpars.extend(signal.param_names)
+            elif signal.signal_name == 'phys_ephem':
+                ephempars.extend(signal.param_names)
+            elif signal.signal_name == 'cw':
+                cwpars.extend(signal.param_names)
+            elif signal.signal_name == 'efac':
+                wnpars.extend(signal.param_names)
+            elif signal.signal_name == 'equad':
+                wnpars.extend(signal.param_names)
+            elif 'ecor'in signal.signal_name:
+                wnpars.extend(signal.param_names)
+
+                
+    
+    if 'red noise' in snames:
+        
+        # create parameter groups for the red noise parameters
+        rnpsrs = [ p.split('_')[0] for p in params if '_log10_A' in p and 'gwb' not in p]
+        b = [params.index(p) for p in params if 'alpha' in p]
+        for psr in rnpsrs:
+            groups.extend([[params.index(psr + '_red_noise_gamma'), params.index(psr + '_red_noise_log10_A')]])
+
+        b = [params.index(p) for p in params if 'alpha' in p]
+        groups.extend([b])
+        
+        for alpha in b:
+            groups.extend([[alpha, params.index('J0613-0200_red_noise_gamma'), params.index('J0613-0200_red_noise_log10_A')]])
+        
+        
+        for i in np.arange(0,len(b),2):
+            groups.append([b[i],b[i+1]])
+        
+        
+        groups.extend([[params.index(p) for p in rnpars]])
+        a = [params.index(p) for p in rnpars]
+        if 'log10_fgw' in params:
+            a.append(params.index('log10_fgw'))
+            groups.extend([a])
+            
+        a = [params.index(p) for p in rnpars]
+        if 'gwb_log10_A' in params and 'gwb_gamma' in params:
+            a.append(params.index('gwb_log10_A'))
+            a.append(params.index('gwb_gamma'))
+            if 'gwb_log10_fbend' in params:
+                a.append(params.index('gwb_log10_fbend'))
+
+            groups.extend([a])
+            
+
+    #addition for sampling wn
+    #this groups efac and equad together for each pulsar
+    if 'efac' in snames and 'equad' in snames:
+    
+        # create parameter groups for the red noise parameters
+        wnpsrs = [ p.split('_')[0] for p in params if '_efac' in p]
+
+        for psr in wnpsrs:
+            groups.extend([[params.index(psr + '_efac'), params.index(psr + '_log10_equad')]])
+            
+        groups.extend([[params.index(p) for p in wnpars]])
+        
+    if 'efac' in snames and 'equad' in snames and 'red noise' in snames:
+    
+        # create parameter groups for the red noise parameters
+        psrs = [ p.split('_')[0] for p in params if '_efac' in p and '_log10_A' in p and 'gwb' not in p]
+
+        for psr in psrs:
+            groups.extend([[params.index(psr + '_efac'), params.index(psr + '_log10_equad'),
+                            params.index(psr + '_red_noise_gamma'), params.index(psr + '_red_noise_log10_A')]])
+            
+                    
+    # set up groups for the BayesEphem parameters
+    if 'phys_ephem' in snames:
+        
+        ephempars = np.unique(ephempars)
+        juporb = [p for p in ephempars if 'jup_orb' in p]
+        groups.extend([[params.index(p) for p in ephempars if p not in juporb]])
+        groups.extend([[params.index(jp) for jp in juporb]])
+        for i1 in range(len(juporb)):
+            for i2 in range(i1+1, len(juporb)):
+                groups.extend([[params.index(p) for p in [juporb[i1], juporb[i2]]]])
+        
+    if 'cw' in snames:
+        
+    
+        # divide the cgw parameters into two groups: 
+        # the common parameters and the pulsar phase and distance parameters
+        cw_common = np.unique(list(filter(lambda x: cwpars.count(x)>1, cwpars)))
+        groups.extend([[params.index(cwc) for cwc in cw_common]])
+
+        cw_pulsar = np.array([p for p in cwpars if p not in cw_common])
+        if len(cw_pulsar) > 0:
+            
+            pdist_params = [ p for p in cw_pulsar if 'p_dist' in p ]
+            pphase_params = [ p for p in cw_pulsar if 'p_phase' in p ]
+            
+            for pd,pp in zip(pdist_params,pphase_params):
+                #groups.extend([[params.index(pd), params.index('cos_gwtheta'), params.index('gwphi')]])
+                groups.extend([[params.index(pd), params.index('log10_mc')]])
+                groups.extend([[params.index(pp), params.index('phase0'), params.index('log10_mc')]])
+                groups.extend([[params.index(pp), params.index('phase0'), params.index('log10_mc'), 
+                                params.index('cos_inc'), params.index('psi')]])
+                groups.extend([[params.index(pd), params.index(pp), 
+                                params.index('log10_mc')]])
+                if 'log10_fgw' in cw_common:
+                    groups.extend([[params.index(pd), params.index('log10_fgw')]])
+                    groups.extend([[params.index(pp), params.index('phase0'), params.index('log10_fgw')]])
+                    groups.extend([[params.index(pp), params.index('phase0'), params.index('log10_fgw'), 
+                                    params.index('cos_inc'), params.index('psi')]])
+                    groups.extend([[params.index(pd), params.index(pp), 
+                                    params.index('log10_fgw')]])
+                    
+                    groups.extend([[params.index(pd), params.index(pp), 
+                                    params.index('log10_fgw'), params.index('log10_mc')]])
+                    groups.extend([[params.index(pp), params.index('phase0'), params.index('log10_mc'), params.index('log10_fgw')]])
+                    groups.extend([[params.index(pp), params.index('phase0'), params.index('log10_mc'), 
+                                    params.index('cos_inc'), params.index('psi'), params.index('log10_fgw')]])
+            
+        # now try other combinations of the common cgw parameters
+        
+        #adapted from get_cw_groups to simplify code
+        ang_pars = ['cos_gwtheta', 'gwphi', 'cos_inc', 'phase0', 'psi']
+        loc_pars = ['cos_gwtheta', 'gwphi']
+        orb_pars = ['cos_inc', 'phase0', 'psi']
+        mfdh_pars = ['log10_mc', 'log10_fgw', 'log10_dL', 'log10_h']
+        freq_pars = ['log10_mc', 'log10_fgw', 'p_dist', 'p_phase']
+        cw_pars = ang_pars.copy()
+        cw_pars.extend(mfdh_pars)
+
+        amp_pars = ['log10_mc', 'log10_h']
+        
+        #parameters to catch and match gwb signals - if set to constant or not included, will skip
+
+        crn_pars = ['gwb_gamma', 'gwb_log10_A']
+        crn_cw_pars = crn_pars.copy()
+        crn_cw_pars.extend(cw_pars)
+        bpl_pars = ['gwb_gamma', 'gwb_log10_A', 'gwb_log10_fbend']
+        bpl_cw_pars = bpl_pars.copy()
+        bpl_cw_pars.extend(cw_pars)
+        
+        groups1 = []
+        
+        for pars in [ang_pars, loc_pars, orb_pars, mfdh_pars, freq_pars, cw_pars, crn_pars, crn_cw_pars, bpl_pars, bpl_cw_pars]:
+            if any(item in params for item in pars):
+                groups1.append(group_from_params(pta, pars))
+
+        for group in groups1:
+            if any(params.index(item) in group for item in amp_pars):
+                pass
+            else:
+                for p in amp_pars:
+                    if p in params:
+                        g = group.copy()
+                        g.append(params.index(p))
+                        groups1.append(g)
+
+        groups.extend(groups1)
+        
+                
+                
+
+    if 'cw' in snames and 'phys_ephem' in snames:
+        # add a group that contains the Jupiter orbital elements and the common GW parameters
+        juporb = list([p for p in ephempars if 'jup_orb' in p])
+
+        cw_common = list(np.unique(list(filter(lambda x: cwpars.count(x)>1, cwpars))))
+
+        
+        myparams = juporb + cw_common
+        
+        groups.extend([[params.index(p) for p in myparams]])
+        
+        if 'gwb_log10_A' in params and 'gwb_gamma' in params:
+            myparams += ['gwb_log10_A', 'gwb_gamma']
+            groups.extend([[params.index(p) for p in myparams]])
+                
+    for group in groups:
+        if len(group) == 0:
+            groups.remove(group)
     return groups
 
 
