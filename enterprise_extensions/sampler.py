@@ -6,6 +6,8 @@ import os
 from enterprise import constants as const
 import pickle
 import healpy as hp
+from scipy.stats import skewnorm, truncnorm
+
 
 from enterprise import constants as const
 from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
