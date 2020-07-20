@@ -510,53 +510,85 @@ class JumpProposal(object):
         return draw
     
     
-    def draw_from_many_par_prior(self, par_names, string_name):
-        # Preparing and comparing par_names with PTA parameters
-        par_names = np.atleast_1d(par_names)
-        par_list = []
-        name_list = []
-        for par_name in par_names:
-            pn_list = [n for n in self.plist if par_name in n]
-            if pn_list:
-                par_list.append(pn_list)
-                name_list.append(par_name)
-        if not par_list:
-            raise UserWarning("No parameter prior match found between {} and PTA.object."
-                              .format(par_names))
-        par_list = np.concatenate(par_list,axis=None)
+class JumpProposalCW(object):
 
-        def draw(x, iter, beta):
-            """Prior draw function generator for custom par_names.
-            par_names: list of strings
-            The function signature is specific to PTMCMCSampler.
-            """
+    def __init__(self, pta, fgw=8e-9,psr_dist = None, snames=None, empirical_distr=None, f_stat_file=None):
+        """Set up some custom jump proposals"""
+        self.params = pta.params
+        self.pnames = pta.param_names
+        self.ndim = sum(p.size or 1 for p in pta.params)
+        self.plist = [p.name for p in pta.params]
 
-            q = x.copy()
-            lqxy = 0
+        # parameter map
+        self.pmap = {}
+        ct = 0
+        for p in pta.params:
+            size = p.size or 1
+            self.pmap[str(p)] = slice(ct, ct+size)
+            ct += size
 
-            # randomly choose parameter
-            idx_name = np.random.choice(par_list)
-            idx = self.plist.index(idx_name)
+        # parameter indices map
+        self.pimap = {}
+        for ct, p in enumerate(pta.param_names):
+            self.pimap[p] = ct
 
-            # if vector parameter jump in random component
-            param = self.params[idx]
-            if param.size:
-                idx2 = np.random.randint(0, param.size)
-                q[self.pmap[str(param)]][idx2] = param.sample()[idx2]
+        # collecting signal parameters across pta
+        if snames is None:
+            allsigs = np.hstack([[qq.signal_name for qq in pp._signals]
+                                                 for pp in pta._signalcollections])
+            self.snames = dict.fromkeys(np.unique(allsigs))
+            for key in self.snames: self.snames[key] = []
 
-            # scalar parameter
+            for sc in pta._signalcollections:
+                for signal in sc._signals:
+                    self.snames[signal.signal_name].extend(signal.params)
+            for key in self.snames: self.snames[key] = list(set(self.snames[key]))
+        else:
+            self.snames = snames
+            
+        self.fgw = fgw
+        self.psr_dist = psr_dist
+
+        # empirical distributions
+        if empirical_distr is not None and os.path.isfile(empirical_distr):
+            try:
+                with open(empirical_distr, 'rb') as f:
+                    pickled_distr = pickle.load(f)
+            except:
+                try:
+                    with open(empirical_distr, 'rb') as f:
+                        pickled_distr = pickle.load(f)
+                except:
+                    print('I can\'t open the empirical distribution pickle file!')
+                    pickled_distr = None
+
+            self.empirical_distr = pickled_distr
+
+        elif isinstance(empirical_distr,list):
+            pass
+        else:
+            self.empirical_distr = None
+
+        if self.empirical_distr is not None:
+            # only save the empirical distributions for parameters that are in the model
+            mask = []
+            for idx,d in enumerate(self.empirical_distr):
+                if d.ndim == 1:
+                    if d.param_name in pta.param_names:
+                        mask.append(idx)
+                else:
+                    if d.param_names[0] in pta.param_names and d.param_names[1] in pta.param_names:
+                        mask.append(idx)
+            if len(mask) > 1:
+                self.empirical_distr = [self.empirical_distr[m] for m in mask]
             else:
-                q[self.pmap[str(param)]] = param.sample()
+                self.empirical_distr = None
 
-            # forward-backward jump probability
-            lqxy = (param.get_logpdf(x[self.pmap[str(param)]]) -
-                    param.get_logpdf(q[self.pmap[str(param)]]))
-
-            return q, float(lqxy)
-
-        name_string = string_name
-        draw.__name__ = 'draw_from_{}_prior'.format(name_string)
-        return draw
+        #F-statistic map
+        if f_stat_file is not None and os.path.isfile(f_stat_file):
+            npzfile = np.load(f_stat_file)
+            self.fe_freqs = npzfile['freqs']
+            self.fe = npzfile['fe']
 
     def draw_from_par_log_uniform(self, par_dict):
         # Preparing and comparing par_dict.keys() with PTA parameters
@@ -704,6 +736,58 @@ class JumpProposal(object):
         lqxy = np.log(fe_old_point/fe_new_point * hastings_extra_factor)
 
         return q, float(lqxy)
+    
+    
+    
+    
+    
+    def draw_from_many_par_prior(self, par_names, string_name):
+        # Preparing and comparing par_names with PTA parameters
+        par_names = np.atleast_1d(par_names)
+        par_list = []
+        name_list = []
+        for par_name in par_names:
+            pn_list = [n for n in self.plist if par_name in n]
+            if pn_list:
+                par_list.append(pn_list)
+                name_list.append(par_name)
+        if not par_list:
+            raise UserWarning("No parameter prior match found between {} and PTA.object."
+                              .format(par_names))
+        par_list = np.concatenate(par_list,axis=None)
+
+        def draw(x, iter, beta):
+            """Prior draw function generator for custom par_names.
+            par_names: list of strings
+            The function signature is specific to PTMCMCSampler.
+            """
+
+            q = x.copy()
+            lqxy = 0
+
+            # randomly choose parameter
+            idx_name = np.random.choice(par_list)
+            idx = self.plist.index(idx_name)
+
+            # if vector parameter jump in random component
+            param = self.params[idx]
+            if param.size:
+                idx2 = np.random.randint(0, param.size)
+                q[self.pmap[str(param)]][idx2] = param.sample()[idx2]
+
+            # scalar parameter
+            else:
+                q[self.pmap[str(param)]] = param.sample()
+
+            # forward-backward jump probability
+            lqxy = (param.get_logpdf(x[self.pmap[str(param)]]) -
+                    param.get_logpdf(q[self.pmap[str(param)]]))
+
+            return q, float(lqxy)
+
+        name_string = string_name
+        draw.__name__ = 'draw_from_{}_prior'.format(name_string)
+        return draw
     
     def phase_psi_reverse_jump(self, x, iter, beta):
         ##written by SJV for 11yr CW
