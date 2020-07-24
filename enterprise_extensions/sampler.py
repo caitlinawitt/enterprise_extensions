@@ -510,87 +510,6 @@ class JumpProposal(object):
         name_string = '_'.join(name_list)
         draw.__name__ = 'draw_from_{}_prior'.format(name_string)
         return draw
-    
-    
-class JumpProposalCW(object):
-
-    def __init__(self, pta, fgw=8e-9,psr_dist = None, snames=None, empirical_distr=None, f_stat_file=None):
-        """Set up some custom jump proposals"""
-        self.params = pta.params
-        self.pnames = pta.param_names
-        self.ndim = sum(p.size or 1 for p in pta.params)
-        self.plist = [p.name for p in pta.params]
-
-        # parameter map
-        self.pmap = {}
-        ct = 0
-        for p in pta.params:
-            size = p.size or 1
-            self.pmap[str(p)] = slice(ct, ct+size)
-            ct += size
-
-        # parameter indices map
-        self.pimap = {}
-        for ct, p in enumerate(pta.param_names):
-            self.pimap[p] = ct
-
-        # collecting signal parameters across pta
-        if snames is None:
-            allsigs = np.hstack([[qq.signal_name for qq in pp._signals]
-                                                 for pp in pta._signalcollections])
-            self.snames = dict.fromkeys(np.unique(allsigs))
-            for key in self.snames: self.snames[key] = []
-
-            for sc in pta._signalcollections:
-                for signal in sc._signals:
-                    self.snames[signal.signal_name].extend(signal.params)
-            for key in self.snames: self.snames[key] = list(set(self.snames[key]))
-        else:
-            self.snames = snames
-            
-        self.fgw = fgw
-        self.psr_dist = psr_dist
-
-        # empirical distributions
-        if empirical_distr is not None and os.path.isfile(empirical_distr):
-            try:
-                with open(empirical_distr, 'rb') as f:
-                    pickled_distr = pickle.load(f)
-            except:
-                try:
-                    with open(empirical_distr, 'rb') as f:
-                        pickled_distr = pickle.load(f)
-                except:
-                    print('I can\'t open the empirical distribution pickle file!')
-                    pickled_distr = None
-
-            self.empirical_distr = pickled_distr
-
-        elif isinstance(empirical_distr,list):
-            pass
-        else:
-            self.empirical_distr = None
-
-        if self.empirical_distr is not None:
-            # only save the empirical distributions for parameters that are in the model
-            mask = []
-            for idx,d in enumerate(self.empirical_distr):
-                if d.ndim == 1:
-                    if d.param_name in pta.param_names:
-                        mask.append(idx)
-                else:
-                    if d.param_names[0] in pta.param_names and d.param_names[1] in pta.param_names:
-                        mask.append(idx)
-            if len(mask) > 1:
-                self.empirical_distr = [self.empirical_distr[m] for m in mask]
-            else:
-                self.empirical_distr = None
-
-        #F-statistic map
-        if f_stat_file is not None and os.path.isfile(f_stat_file):
-            npzfile = np.load(f_stat_file)
-            self.fe_freqs = npzfile['freqs']
-            self.fe = npzfile['fe']
 
     def draw_from_par_log_uniform(self, par_dict):
         # Preparing and comparing par_dict.keys() with PTA parameters
@@ -741,7 +660,85 @@ class JumpProposalCW(object):
     
     
     
-    
+class JumpProposalCW(object):
+
+    def __init__(self, pta, fgw=8e-9,psr_dist = None, snames=None, empirical_distr=None, f_stat_file=None):
+        """Set up some custom jump proposals"""
+        self.params = pta.params
+        self.pnames = pta.param_names
+        self.ndim = sum(p.size or 1 for p in pta.params)
+        self.plist = [p.name for p in pta.params]
+
+        # parameter map
+        self.pmap = {}
+        ct = 0
+        for p in pta.params:
+            size = p.size or 1
+            self.pmap[str(p)] = slice(ct, ct+size)
+            ct += size
+
+        # parameter indices map
+        self.pimap = {}
+        for ct, p in enumerate(pta.param_names):
+            self.pimap[p] = ct
+
+        # collecting signal parameters across pta
+        if snames is None:
+            allsigs = np.hstack([[qq.signal_name for qq in pp._signals]
+                                                 for pp in pta._signalcollections])
+            self.snames = dict.fromkeys(np.unique(allsigs))
+            for key in self.snames: self.snames[key] = []
+
+            for sc in pta._signalcollections:
+                for signal in sc._signals:
+                    self.snames[signal.signal_name].extend(signal.params)
+            for key in self.snames: self.snames[key] = list(set(self.snames[key]))
+        else:
+            self.snames = snames
+            
+        self.fgw = fgw
+        self.psr_dist = psr_dist
+
+        # empirical distributions
+        if empirical_distr is not None and os.path.isfile(empirical_distr):
+            try:
+                with open(empirical_distr, 'rb') as f:
+                    pickled_distr = pickle.load(f)
+            except:
+                try:
+                    with open(empirical_distr, 'rb') as f:
+                        pickled_distr = pickle.load(f)
+                except:
+                    print('I can\'t open the empirical distribution pickle file!')
+                    pickled_distr = None
+
+            self.empirical_distr = pickled_distr
+
+        elif isinstance(empirical_distr,list):
+            pass
+        else:
+            self.empirical_distr = None
+
+        if self.empirical_distr is not None:
+            # only save the empirical distributions for parameters that are in the model
+            mask = []
+            for idx,d in enumerate(self.empirical_distr):
+                if d.ndim == 1:
+                    if d.param_name in pta.param_names:
+                        mask.append(idx)
+                else:
+                    if d.param_names[0] in pta.param_names and d.param_names[1] in pta.param_names:
+                        mask.append(idx)
+            if len(mask) > 1:
+                self.empirical_distr = [self.empirical_distr[m] for m in mask]
+            else:
+                self.empirical_distr = None
+
+        #F-statistic map
+        if f_stat_file is not None and os.path.isfile(f_stat_file):
+            npzfile = np.load(f_stat_file)
+            self.fe_freqs = npzfile['freqs']
+            self.fe = npzfile['fe']
     
     def draw_from_many_par_prior(self, par_names, string_name):
         # Preparing and comparing par_names with PTA parameters
